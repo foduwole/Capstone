@@ -7,37 +7,36 @@ library(ggplot2)
 library(wordcloud)
 
 # reading in the csv file
+# must set up working directory based on where its located on computer
 setwd("D:/RYERSON courses/CKME 136/finalproj")
 tweets<-read.csv("socialmedia-disaster-tweets-DFE.csv", header = TRUE, sep = ",")
 
 # removing unnecessary columns
-tweets <- subset(tweets, select=-X_unit_id)
-tweets <- subset(tweets, select=-X_golden)
-tweets <- subset(tweets, select=-X_unit_state)
-tweets <- subset(tweets, select=-X_trusted_judgments)
-tweets <- subset(tweets, select=-X_last_judgment_at)
-tweets <- subset(tweets, select=-choose_one.confidence)
-tweets <- subset(tweets, select=-choose_one_gold)
+tweets <- tweets[c(6,9,10,11)]
 
 # renaming "choose_one" column to "Relevancy"
-names(tweets) <- c("relevancy","keyword", "location","text","tweetid","userid")
+names(tweets) <- c("relevancy","keyword", "location","text")
 # reordering the columns so it shows "Relevancy" then "text" and all other columns
-tweets<-tweets[c("relevancy","text","keyword", "location","tweetid","userid")]
-# assigning a random number to tweets with "NA" user ids values
+tweets<-tweets[c("relevancy","text","keyword", "location")]
 
-# possibly removing tweets with no keyword associated with it?
+# adding a level "none" for tweets with no keyword associated with it
+levels(tweets$keyword) <- c(levels(tweets$keyword), "none")
+noKey<-which(tweets$keyword=="")
+for (n in noKey){tweets$keyword[n]<-"none"}
+
 
 # removing rows where the "relevancy" rating is "Can't Decide"
 tweets <- subset(tweets, relevancy == "Relevant" | relevancy == "Not Relevant")
 
-# why does eliminated factor level still show up in "levels" function (Can't Decide)
+# eliminating the (Can't Decide) from the factor level
+tweets$relevancy<- droplevels(tweets$relevancy)
+
 # change tweets to character type
 tweets$text<-as.character(tweets$text)
 
 # remove random characters from between keywords
 tweets$keyword <- gsub("%20"," ",tweets$keyword)
 
-tweets<-subset(tweets, keyword!="")
 
 ################# EXPLORATION #################
 
@@ -67,15 +66,27 @@ myCorpus <- Corpus(VectorSource(tweets$text))
 #Preprocessing the tweets
 myCorpus <- tm_map(myCorpus, content_transformer(tolower))
 
+#removing usersnames that appear after the @ symbol
+removeUsername <- function(x) gsub("@\\S+", "", x)
+myCorpus <- tm_map(myCorpus, content_transformer(removeUsername)) 
+
+# remove urls
+removeURL <- function(x) gsub('(f|ht)tp\\S+\\s*',"", x)
+myCorpus <- tm_map(myCorpus, content_transformer(removeURL)) 
+
+# based on observing the results, adding this function to catch when two words were separated only by : or ;
+sepWords<-function(x) gsub('[:;]', ' ', x)
+myCorpus <- tm_map(myCorpus, content_transformer(sepWords)) 
+
 # remove punctuation
 myCorpus <- tm_map(myCorpus, removePunctuation)
 
+# remove special characters not caught
+removeSpec <-function(x) gsub('[^a-zA-Z0-9]', ' ', x)
+myCorpus <- tm_map(myCorpus, content_transformer(removeSpec)) 
+
 # remove numbers
 myCorpus <- tm_map(myCorpus, removeNumbers)
-
-# remove urls
-removeURL <- function(x) gsub("http[[:alnum:]]*", "", x)
-myCorpus <- tm_map(myCorpus, content_transformer(removeURL))  #??
 
 # remove stopwords
 myStopwords <- c(stopwords('english'))
@@ -176,19 +187,16 @@ bp <- ggplot(df.sort, aes(term, freq))
 bp + geom_bar(stat = "identity",aes(fill = freq),na.rm = T) + coord_flip() + xlab("Terms") + ylab("Count") + ggtitle("Words That Appeared in Most Tweets, Overall") 
 
 # which words are associated with keywords used to find tweets?
-#need to get rid of keywords with 2 words, get rid of empty spaces
 keywords<-unique(tweets$keyword)
 keywords<-as.character(keywords)
-# first keyword is empty (must fix that)
 
-# make for loop to go through each keyword and only pick those that have associations
+# sample of keywords and their associations
 val<-sample(length(keywords),4)
 few.assocs<-findAssocs(tdm, keywords[val], 0.2)
 data <- unlist(few.assocs)
 
-# make sure to check whether the length() is not equal to 0, then plot data
 # visualizing the data
-dat<-data.frame(words=names(data),as.numeric(data))
+dat<-data.frame(words=names(data),perc=as.numeric(data))
 
 ggplot(dat, aes(x=names(data), y=as.numeric(data), fill=names(data))) + geom_bar(colour="black", stat="identity") + guides(fill=FALSE) + xlab("Associated Words") + ylab("value (up to 1) of word association") + ggtitle("Word Associations") + coord_flip()
 
@@ -200,12 +208,10 @@ relevant_tweets <- myCorpus[which(tweets$relevancy=="Relevant")]
 # creating a subset of values in cases where tweets were considered "not relevant" to a disaster
 irrelevant_tweets <- myCorpus[which(tweets$relevancy=="Not Relevant")]
 
-# remove all keywords from 
-
 # converting to PlanTextDocuments 
 relevant_tweets <- tm_map(relevant_tweets, PlainTextDocument)
 irrelevant_tweets <- tm_map(irrelevant_tweets, PlainTextDocument)
 
-# creating a wordcloud, words must appear at least 100 times to be included
-wordcloud(relevant_tweets, min.freq = 100, random.order = FALSE,colors=rainbow(5))
-wordcloud(irrelevant_tweets, min.freq = 100, random.order = FALSE,colors=rainbow(3))
+# creating a wordcloud, words must appear at least 125 times to be included
+wordcloud(relevant_tweets, min.freq = 125, random.order = FALSE,colors=rainbow(5))
+wordcloud(irrelevant_tweets, min.freq = 125, random.order = FALSE,colors=rainbow(3))
